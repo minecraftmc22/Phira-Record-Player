@@ -2,11 +2,11 @@
   "build": {
     "beforeBuildCommand": "pnpm run build",
     "beforeDevCommand": "pnpm dev",
-    "devPath": "http://localhost:5173",
+    "devPath": "../dist",
     "distDir": "../dist"
   },
   "package": {
-    "productName": "phira-render",
+    "productName": "Phira-Record-Player",
     "version": "0.1.0"
   },
   "tauri": {
@@ -57,14 +57,15 @@
       },
       "resources": [
         "assets",
-        "WebView2Loader.dll"
+        "WebView2Loader.dll",
+        "libunwind.dll"
       ],
       "shortDescription": "",
-      "targets": "all",
+      "targets": "nsis",
       "windows": {
-        "certificateThumbprint": null,
-        "digestAlgorithm": "sha256",
-        "timestampUrl": ""
+        "nsis": {
+          "installMode": "perMachine"
+        }
       }
     },
     "security": {
@@ -78,7 +79,7 @@
         "fullscreen": false,
         "height": 660,
         "resizable": true,
-        "title": "phira-render",
+        "title": "Phira Record Player",
         "width": 880,
         "fileDropEnabled": true
       }

@@ -2,6 +2,7 @@ import { nextTick } from 'vue';
 import { createRouter, createWebHistory } from 'vue-router';
 
 import AboutView from '../AboutView.vue';
+import RecordView from '../RecordView.vue';
 import RenderView from '../RenderView.vue';
 import RPEView from '../RPEView.vue';
 import TasksView from '../TasksView.vue';
@@ -15,6 +16,7 @@ const router = createRouter({
   routes: [
     { path: '/', name: 'render', component: RenderView },
     { path: '/rpe', name: 'rpe', component: RPEView },
+    { path: '/record', name: 'record', component: RecordView },
     {
       path: '/tasks',
       name: 'tasks',

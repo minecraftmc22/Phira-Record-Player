@@ -2,12 +2,14 @@
 en:
   render: Render
   rpe: RPE
+  record: Replay
   tasks: Tasks
   about: About
 
 zh-CN:
   render: 渲染
   rpe: RPE
+  record: 回放
   tasks: 任务列表
   about: 关于
 
@@ -50,6 +52,7 @@ const route = useRoute(),
 const icons = {
   render: 'mdi-auto-fix',
   rpe: 'mdi-bookshelf',
+  record: 'mdi-play-circle',
   tasks: 'mdi-server',
   about: 'mdi-information-outline',
 };
@@ -60,13 +63,13 @@ window.goto = (name: string) => {
 </script>
 
 <template>
-  <v-app id="phira-render">
+  <v-app id="phira-record-player">
     <v-sonner position="top-center" />
-    <v-app-bar title="phira-render"></v-app-bar>
+    <v-app-bar title="Phira Record Player"></v-app-bar>
     <v-navigation-drawer expand-on-hover rail permanent>
       <v-list density="compact" nav>
         <v-list-item
-          v-for="key in ['render', 'rpe', 'tasks', 'about']"
+          v-for="key in ['render', 'rpe', 'record', 'tasks', 'about']"
           :active="route.name === key"
           :key="key"
           :prepend-icon="icons[key as keyof typeof icons]"

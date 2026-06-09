@@ -26,11 +26,13 @@ export type TaskStatus =
       progress: number;
       fps: number;
       estimate: number;
+      log: string;
     }
   | {
       type: 'done';
       duration: number;
       output: string;
+      log: string;
     }
   | {
       type: 'canceled';
@@ -38,6 +40,7 @@ export type TaskStatus =
   | {
       type: 'failed';
       error: string;
+      log: string;
     };
 
 export interface Task {
@@ -72,6 +75,8 @@ export interface RenderConfig {
   speed: number;
   volumeMusic: number;
   volumeSfx: number;
+
+  replayPath?: string | null;
 }
 
 export interface RPEChart {
@@ -81,3 +86,45 @@ export interface RPEChart {
   illustration: string;
   charter: string;
 }
+
+// -- .phirarec record types (tphira-mp format) --
+
+export interface TouchPoint {
+  id: number;
+  x: number;
+  y: number;
+}
+
+export interface TouchFrame {
+  time: number;
+  points: TouchPoint[];
+}
+
+export interface JudgeEvent {
+  time: number;
+  line_id: number;
+  note_id: number;
+  judgement: number;
+}
+
+export interface PhiraRecord {
+  version: number;
+  compression: number;
+  record_id: number;
+  timestamp_ms: number;
+  chart_id: number;
+  chart_name: string;
+  user_id: number;
+  user_name: string;
+  touches: TouchFrame[];
+  judges: JudgeEvent[];
+}
+
+export const JUDGEMENT_NAMES: Record<number, string> = {
+  0: 'Perfect',
+  1: 'Good',
+  2: 'Bad',
+  3: 'Miss',
+  4: 'HoldPerfect',
+  5: 'HoldGood',
+};

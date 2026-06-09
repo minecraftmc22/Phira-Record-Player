@@ -1,24 +1,26 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-prpr::tl_file!("main" mtl);
+prpr_l10n::tl_file!("main" mtl);
 
 mod common;
 mod ipc;
 mod preview;
+mod record;
 mod render;
 mod task;
 
 use anyhow::{bail, Context, Result};
 use common::{ensure_dir, respack_dir, CONFIG_DIR, DATA_DIR};
-use fs4::tokio::AsyncFileExt;
+use fs4::FileExt;
 use macroquad::prelude::set_pc_assets_folder;
 use prpr::{
     fs::{self, FileSystem},
     info::ChartInfo,
 };
+use record::PhiraRecord;
 use render::{find_ffmpeg, RenderConfig, RenderParams};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     fs::File,
@@ -38,7 +40,7 @@ use tauri::{
 use tokio::{io::AsyncWriteExt, process::Command};
 
 static ASSET_PATH: OnceLock<PathBuf> = OnceLock::new();
-static LOCK_FILE: OnceLock<tokio::fs::File> = OnceLock::new();
+static LOCK_FILE: OnceLock<std::fs::File> = OnceLock::new();
 
 #[inline]
 async fn wrap_async<R>(f: impl Future<Output = Result<R>>) -> Result<R, InvokeError> {
@@ -68,14 +70,13 @@ async fn run_wrapped(f: impl Future<Output = Result<()>>) -> ! {
 
 #[macroquad::main(build_conf)]
 async fn main() -> Result<()> {
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(4)
-        .enable_all()
-        .build()
-        .unwrap();
-    let _guard = rt.enter();
-
     if std::env::args().len() > 1 {
+        // render/preview 模式用 current_thread 避免 tokio worker 线程唤醒 macroquad future
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let _guard = rt.enter();
         match std::env::args().skip(1).next().as_deref() {
             Some("render") => {
                 run_wrapped(render::main()).await;
@@ -89,6 +90,14 @@ async fn main() -> Result<()> {
             }
         }
     }
+
+    // GUI 模式用 multi_thread
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(4)
+        .enable_all()
+        .build()
+        .unwrap();
+    let _guard = rt.enter();
 
     let tray_menu = SystemTrayMenu::new()
         .add_item(CustomMenuItem::new("toggle".to_owned(), mtl!("tray-hide")))
@@ -117,6 +126,8 @@ async fn main() -> Result<()> {
             get_rpe_charts,
             test_ffmpeg,
             open_app_folder,
+            parse_rec,
+            render_replay_video,
         ])
         .on_system_tray_event(|app, event| match event {
             SystemTrayEvent::MenuItemClick { id, .. } => {
@@ -178,12 +189,11 @@ async fn main() -> Result<()> {
             .app_cache_dir()
             .unwrap_or_else(|| exe_dir.to_owned()),
     );
-    let lock_file = tokio::fs::OpenOptions::new()
+    let lock_file = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
-        .open(cache_dir.join("app.lock"))
-        .await?;
+        .open(cache_dir.join("app.lock"))?;
     if lock_file.try_lock_exclusive().is_ok() {
         LOCK_FILE.set(lock_file).unwrap();
     } else {
@@ -529,4 +539,80 @@ fn open_app_folder() -> Result<(), InvokeError> {
         Ok(())
     })()
     .map_err(InvokeError::from_anyhow)
+}
+
+#[tauri::command]
+async fn parse_rec(path: &Path) -> Result<PhiraRecord, InvokeError> {
+    wrap_async(async move {
+        let data = tokio::fs::read(path)
+            .await
+            .with_context(|| format!("Failed to read: {}", path.display()))?;
+        record::parse_record(&data).map_err(anyhow::Error::from)
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ReplayRenderRequest {
+    chart_path: PathBuf,
+    replay_path: PathBuf,
+}
+
+#[tauri::command]
+async fn render_replay_video(
+    queue: State<'_, TaskQueue>,
+    request: ReplayRenderRequest,
+) -> Result<u32, InvokeError> {
+    wrap_async(async move {
+        // 1. Parse the chart to get ChartInfo
+        let mut fs: Box<dyn fs::FileSystem + Send + Sync + 'static> =
+            fs::fs_from_file(&request.chart_path)
+                .with_context(|| format!("读取谱面失败: {}", request.chart_path.display()))?;
+        let info: ChartInfo = fs::load_info(fs.deref_mut())
+            .await
+            .with_context(|| format!("加载谱面信息失败: {}", request.chart_path.display()))?;
+
+        // 2. Parse the replay to get player_name
+        let replay_data = tokio::fs::read(&request.replay_path)
+            .await
+            .with_context(|| format!("读取回放失败: {}", request.replay_path.display()))?;
+        let rec = record::parse_record(&replay_data)
+            .with_context(|| "解析回放文件失败")?;
+
+        // 3. Build RenderConfig with player info
+        let config = RenderConfig {
+            resolution: (1920, 1080),
+            ending_length: 25.5,
+            fps: 60,
+            hardware_accel: false,
+            bitrate: "7M".to_owned(),
+            aggressive: true,
+            disable_effect: false,
+            double_hint: true,
+            fxaa: false,
+            note_scale: 1.0,
+            particle: true,
+            player_avatar: None,
+            player_name: rec.user_name.clone(),
+            player_rks: 15.0,
+            sample_count: 4,
+            res_pack_path: None,
+            speed: 1.0,
+            volume_music: 1.0,
+            volume_sfx: 1.0,
+        };
+
+        // 4. Create RenderParams and post to task queue
+        let params = RenderParams {
+            path: request.chart_path,
+            info,
+            config,
+            judges: Some(rec.judges),
+        };
+
+        let id = queue.post(params).await?;
+        Ok(id)
+    })
+    .await
 }

@@ -58,20 +58,20 @@ pub async fn main() -> Result<()> {
     let font = FontArc::try_from_vec(load_file("font.ttf").await?)?;
     let mut painter = TextPainter::new(font, None);
 
-    let player = build_player(&params.config).await?;
+    let player = build_player(&params.config)?;
 
     let tm = TimeManager::default();
     let ctm = TimeManager::from_config(&config); // strange variable name...
     let mut main = Main::new(
         Box::new(BaseScene(
             Some(NextScene::Overlay(Box::new(
-                LoadingScene::new(GameMode::Normal, info, config, fs, Some(player), None, None, None)
+                LoadingScene::new(GameMode::Normal, info, config, fs, Some(player), None, None, None, None)
                     .await?,
             ))),
             false,
         )),
         ctm,
-        None,
+        None::<RenderTarget>,
     )
     .await?;
     let mut fps_time = -1;

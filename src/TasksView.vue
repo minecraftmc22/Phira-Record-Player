@@ -21,6 +21,9 @@ en:
   show-output: 查看输出
   show-in-folder: Show in Folder
 
+  show-log: View Log
+  log: Log
+
 zh-CN:
   empty: 空空如也
 
@@ -42,6 +45,8 @@ zh-CN:
 
   show-output: 查看输出
   show-in-folder: 在文件夹中显示
+  show-log: 查看日志
+  log: 日志
 
 </i18n>
 
@@ -102,6 +107,9 @@ const errorDialog = ref(false),
 const outputDialog = ref(false),
   outputDialogMessage = ref('');
 
+const logDialog = ref(false),
+  logDialogMessage = ref('');
+
 async function showInFolder(path: string) {
   try {
     await invoke('show_in_folder', { path });
@@ -131,10 +139,33 @@ async function showInFolder(path: string) {
                 :indeterminate="task.status.type !== 'rendering'"
                 :model-value="task.status.type === 'rendering' ? task.status.progress * 100 : 0"></v-progress-linear>
               <div class="pt-4 d-flex justify-end">
+                <v-btn
+                  v-if="task.status.type === 'rendering'"
+                  variant="text"
+                  @click="
+                    () => {
+                      if (task.status.type === 'rendering') {
+                        logDialogMessage = task.status.log;
+                        logDialog = true;
+                      }
+                    }
+                  "
+                  v-t="'show-log'"></v-btn>
                 <v-btn variant="text" @click="invoke('cancel_task', { id: task.id })" v-t="'cancel'"></v-btn>
               </div>
             </template>
             <div v-if="task.status.type === 'failed'" class="pt-4 d-flex justify-end">
+              <v-btn
+                variant="text"
+                @click="
+                  () => {
+                    if (task.status.type === 'failed') {
+                      logDialogMessage = task.status.log;
+                      logDialog = true;
+                    }
+                  }
+                "
+                v-t="'show-log'"></v-btn>
               <v-btn
                 variant="text"
                 @click="
@@ -148,6 +179,17 @@ async function showInFolder(path: string) {
                 v-t="'details'"></v-btn>
             </div>
             <div v-if="task.status.type === 'done'" class="pt-4 d-flex justify-end">
+              <v-btn
+                variant="text"
+                @click="
+                  () => {
+                    if (task.status.type === 'done') {
+                      logDialogMessage = task.status.log;
+                      logDialog = true;
+                    }
+                  }
+                "
+                v-t="'show-log'"></v-btn>
               <v-btn
                 variant="text"
                 @click="
@@ -186,6 +228,18 @@ async function showInFolder(path: string) {
         </v-card-text>
         <v-card-actions class="justify-end">
           <v-btn color="primary" variant="text" @click="outputDialog = false" v-t="'confirm'"></v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="logDialog" width="auto" min-width="400px">
+      <v-card>
+        <v-card-title v-t="'log'"> </v-card-title>
+        <v-card-text>
+          <pre class="block whitespace-pre overflow-auto" style="max-height: 60vh">{{ logDialogMessage || '(no log output)' }}</pre>
+        </v-card-text>
+        <v-card-actions class="justify-end">
+          <v-btn color="primary" variant="text" @click="logDialog = false" v-t="'confirm'"></v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>

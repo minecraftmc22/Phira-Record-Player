@@ -1,13 +1,15 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
-prpr::tl_file!("render");
+prpr_l10n::tl_file!("render" tl);
 
+use crate::record::JudgeEvent;
 use anyhow::{bail, Context, Result};
-use macroquad::{miniquad::gl::GLuint, prelude::*};
+use macroquad::{prelude::*};
 use prpr::{
-    config::{ChallengeModeColor, Config, Mods},
+    config::{Config, Mods},
     core::{internal_id, MSRenderTarget, NoteKind},
     fs,
     info::ChartInfo,
+    judge::Judgement,
     scene::{BasicPlayer, GameMode, GameScene, LoadingScene},
     time::TimeManager,
     ui::{FontArc, TextPainter},
@@ -31,50 +33,45 @@ use tempfile::NamedTempFile;
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RenderConfig {
-    resolution: (u32, u32),
-    ending_length: f64,
-    fps: u32,
-    hardware_accel: bool,
-    bitrate: String,
+    pub resolution: (u32, u32),
+    pub ending_length: f64,
+    pub fps: u32,
+    pub hardware_accel: bool,
+    pub bitrate: String,
 
-    aggressive: bool,
-    challenge_color: ChallengeModeColor,
-    challenge_rank: u32,
-    disable_effect: bool,
-    double_hint: bool,
-    fxaa: bool,
-    note_scale: f32,
-    particle: bool,
-    player_avatar: Option<String>,
-    player_name: String,
-    player_rks: f32,
-    sample_count: u32,
-    res_pack_path: Option<String>,
-    speed: f32,
-    volume_music: f32,
-    volume_sfx: f32,
+    pub aggressive: bool,
+    pub disable_effect: bool,
+    pub double_hint: bool,
+    pub fxaa: bool,
+    pub note_scale: f32,
+    pub particle: bool,
+    pub player_avatar: Option<String>,
+    pub player_name: String,
+    pub player_rks: f32,
+    pub sample_count: u32,
+    pub res_pack_path: Option<String>,
+    pub speed: f32,
+    pub volume_music: f32,
+    pub volume_sfx: f32,
 }
 
 impl RenderConfig {
     pub fn to_config(&self) -> Config {
-        Config {
-            aggressive: self.aggressive,
-            challenge_color: self.challenge_color.clone(),
-            challenge_rank: self.challenge_rank,
-            disable_effect: self.disable_effect,
-            double_hint: self.double_hint,
-            fxaa: self.fxaa,
-            note_scale: self.note_scale,
-            particle: self.particle,
-            player_name: self.player_name.clone(),
-            player_rks: self.player_rks,
-            sample_count: self.sample_count,
-            res_pack_path: self.res_pack_path.clone(),
-            speed: self.speed,
-            volume_music: self.volume_music,
-            volume_sfx: self.volume_sfx,
-            ..Default::default()
-        }
+        let mut c = Config::default();
+        c.aggressive = self.aggressive;
+        c.disable_effect = self.disable_effect;
+        c.double_hint = self.double_hint;
+        c.fxaa = self.fxaa;
+        c.note_scale = self.note_scale;
+        c.particle = self.particle;
+        c.player_name = self.player_name.clone();
+        c.player_rks = self.player_rks;
+        c.sample_count = self.sample_count;
+        c.res_pack_path = self.res_pack_path.clone();
+        c.speed = self.speed;
+        c.volume_music = self.volume_music;
+        c.volume_sfx = self.volume_sfx;
+        c
     }
 }
 
@@ -84,6 +81,7 @@ pub struct RenderParams {
     pub path: PathBuf,
     pub info: ChartInfo,
     pub config: RenderConfig,
+    pub judges: Option<Vec<JudgeEvent>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -94,13 +92,12 @@ pub enum IPCEvent {
     Done(f64),
 }
 
-pub async fn build_player(config: &RenderConfig) -> Result<BasicPlayer> {
+pub fn build_player(config: &RenderConfig) -> Result<BasicPlayer> {
     Ok(BasicPlayer {
         avatar: if let Some(path) = &config.player_avatar {
             Some(
                 Texture2D::from_file_with_format(
-                    &tokio::fs::read(path)
-                        .await
+                    &std::fs::read(path)
                         .with_context(|| tl!("load-avatar-failed"))?,
                     None,
                 )
@@ -179,9 +176,10 @@ pub async fn main() -> Result<()> {
     let mut painter = TextPainter::new(font, None);
 
     let mut config = params.config.to_config();
-    config.mods = Mods::AUTOPLAY;
 
     let info = params.info;
+
+    let judges = params.judges.unwrap_or_default();
 
     let (chart, ..) = GameScene::load_chart(fs.deref_mut(), &info)
         .await
@@ -220,7 +218,7 @@ pub async fn main() -> Result<()> {
     assert_eq!(sample_rate, sfx_flick.sample_rate());
     let mut output = vec![0.0_f32; (video_length * sample_rate as f64).ceil() as usize * 2];
     {
-        let pos = O - chart.offset.min(0.) as f64;
+        let pos = O + offset as f64;
         let count = (music.length() as f64 * sample_rate as f64) as usize;
         let mut it = output[((pos * sample_rate as f64).round() as usize * 2)..].iter_mut();
         let ratio = 1. / sample_rate as f64;
@@ -291,10 +289,51 @@ pub async fn main() -> Result<()> {
         move || *(*my_time).borrow()
     }));
     static MSAA: AtomicBool = AtomicBool::new(false);
-    let player = build_player(&params.config).await?;
+    let player = build_player(&params.config)?;
+
+    eprintln!("[RENDER] judges count: {}, has_judges: {}", judges.len(), !judges.is_empty());
+    if !judges.is_empty() {
+        eprintln!("[RENDER] first judge: time={}, line={}, note={}, j={}", judges[0].time, judges[0].line_id, judges[0].note_id, judges[0].judgement);
+        eprintln!("[RENDER] last judge: time={}, line={}, note={}, j={}", judges.last().unwrap().time, judges.last().unwrap().line_id, judges.last().unwrap().note_id, judges.last().unwrap().judgement);
+    }
+    // No AUTOPLAY: we inject real replay judgments via update_fn.
+    // To prevent the engine from auto-missing notes (miss window = 0.22s),
+    // we commit each judgment slightly early (0.18s before the miss deadline),
+    // i.e. when current time reaches ev.time + 0.04s (well within LIMIT_BAD=0.22s).
+    let has_judges = !judges.is_empty();
+    let update_fn: Option<Box<dyn FnMut(f64, &mut prpr::core::Resource, &mut prpr::judge::Judge)>> =
+        if has_judges {
+            let mut judge_idx = 0usize;
+            let mut first_call = true;
+            Some(Box::new(move |time: f64, _res: &mut prpr::core::Resource, judge: &mut prpr::judge::Judge| {
+                if first_call {
+                    eprintln!("[RENDER] update_fn first call at time={:.3}, judges.len={}", time, judges.len());
+                    first_call = false;
+                }
+                // Commit when time >= ev.time + 0.04s, ensuring we beat the 0.22s miss window
+                while judge_idx < judges.len() {
+                    let ev = &judges[judge_idx];
+                    if (ev.time as f64 + 0.04) > time {
+                        break;
+                    }
+                    let judgement = match ev.judgement {
+                        0 | 4 => Judgement::Perfect,
+                        1 | 5 => Judgement::Good,
+                        2 => Judgement::Bad,
+                        _ => Judgement::Miss,
+                    };
+                    judge.commit(ev.time as f64, judgement, ev.line_id as u32, ev.note_id as u32, 0.0);
+                    judge_idx += 1;
+                }
+            }))
+        } else {
+            config.mods = Mods::AUTOPLAY;
+            None
+        };
+
     let mut main = Main::new(
         Box::new(
-            LoadingScene::new(GameMode::Normal, info, config, fs, Some(player), None, None, None).await?,
+            LoadingScene::new(GameMode::Normal, info, config, fs, Some(player), None, update_fn, None, None).await?,
         ),
         tm,
         {
@@ -316,7 +355,8 @@ pub async fn main() -> Result<()> {
     main.top_level = false;
     main.viewport = Some((0, 0, vw as _, vh as _));
 
-    const O: f64 = LoadingScene::TOTAL_TIME as f64 + GameScene::BEFORE_TIME as f64;
+    // LoadingScene takes ~1s to load + GameScene has 0.7s lead-in before chart starts
+    const O: f64 = 1.0_f64 + GameScene::BEFORE_TIME;
     const A: f64 = 0.7 + 0.3 + 0.4;
 
     let fps = params.config.fps;
@@ -366,33 +406,28 @@ pub async fn main() -> Result<()> {
 
     let byte_size = vw as usize * vh as usize * 4;
 
+    // Headless rendering: use a simple heap buffer for glReadPixels.
+    // PBO (Pixel Buffer Object) does not work reliably in softpipe/headless
+    // mode — glMapBuffer returns NULL, resulting in 0 frames written to FFmpeg.
+    let mut pixel_buf: Vec<u8> = vec![0u8; byte_size];
+
     let frames = (video_length / frame_delta as f64).ceil() as u64;
-
-    const N: usize = 3;
-    let mut pbos: [GLuint; N] = [0; N];
-    unsafe {
-        use miniquad::gl::*;
-        glGenBuffers(N as _, pbos.as_mut_ptr());
-        for pbo in pbos {
-            glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo);
-            glBufferData(
-                GL_PIXEL_PACK_BUFFER,
-                (vw as u64 * vh as u64 * 4) as _,
-                std::ptr::null(),
-                GL_STREAM_READ,
-            );
-        }
-        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-    }
-
     send(IPCEvent::StartRender(frames));
 
     for frame in 0..frames {
         *my_time.borrow_mut() = (frame as f32 * frame_delta).max(0.) as f64;
+        let now = *my_time.borrow();
         gl.quad_gl.render_pass(Some(mst.output().render_pass));
         clear_background(BLACK);
         main.viewport = Some((0, 0, vw as _, vh as _));
         main.update()?;
+        if main.should_exit() {
+            eprintln!("[RENDER] Game scene exited at frame={}", frame);
+            break;
+        }
+        if frame % 1000 == 0 {
+            eprintln!("[RENDER] progress: frame={}/{} time={:.3}s", frame, frames, now);
+        }
         main.render(&mut painter)?;
         // TODO magic. can't remove this line.
         draw_rectangle(0., 0., 0., 0., Color::default());
@@ -401,29 +436,23 @@ pub async fn main() -> Result<()> {
         if MSAA.load(Ordering::SeqCst) {
             mst.blit();
         }
+        // Write raw RGBA pixels directly to FFmpeg stdin via heap buffer.
+        // Synchronous glReadPixels is used instead of PBO because
+        // glMapBuffer returns NULL in headless/softpipe mode.
         unsafe {
             use miniquad::gl::*;
-            let tex = mst.output().texture.raw_miniquad_texture_handle();
             glBindFramebuffer(GL_READ_FRAMEBUFFER, internal_id(mst.output()));
-
-            glBindBuffer(GL_PIXEL_PACK_BUFFER, pbos[frame as usize % N]);
             glReadPixels(
                 0,
                 0,
-                tex.width as _,
-                tex.height as _,
+                vw as _,
+                vh as _,
                 GL_RGBA,
                 GL_UNSIGNED_BYTE,
-                std::ptr::null_mut(),
+                pixel_buf.as_mut_ptr() as *mut std::os::raw::c_void,
             );
-
-            glBindBuffer(GL_PIXEL_PACK_BUFFER, pbos[(frame + 1) as usize % N]);
-            let src = glMapBuffer(GL_PIXEL_PACK_BUFFER, 0x88B8);
-            if !src.is_null() {
-                input.write_all(&std::slice::from_raw_parts(src as *const u8, byte_size))?;
-                glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
-            }
         }
+        input.write_all(&pixel_buf)?;
         send(IPCEvent::Frame);
     }
     drop(input);

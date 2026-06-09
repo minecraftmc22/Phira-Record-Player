@@ -1,4 +1,4 @@
-# Logs
+# ===== Logs =====
 logs
 *.log
 npm-debug.log*
@@ -7,17 +7,21 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# ===== Node / Frontend =====
 node_modules
-.DS_Store
 dist
 dist-ssr
 coverage
 *.local
 
+# ===== macOS =====
+.DS_Store
+
+# ===== Cypress =====
 /cypress/videos/
 /cypress/screenshots/
 
-# Editor directories and files
+# ===== Editor / IDE =====
 .vscode/*
 !.vscode/extensions.json
 .idea
@@ -27,9 +31,41 @@ coverage
 *.sln
 *.sw?
 
-/deploy.sh
-
-/static-lib
-/.cargo
-
+# ===== Rust / Cargo =====
+# Default build output directory
 target/
+# External target directories (G: drive build)
+/target-debug/
+G:/cargo-target/
+
+# Cargo.lock is kept for binaries (Tauri app), comment out if library
+# Cargo.lock
+
+# ===== Tauri =====
+src-tauri/target/
+src-tauri/WixTools/
+src-tauri/WebView2Loader.dll
+# Tauri generated
+src-tauri/gen/
+
+# ===== Phira / Runtime =====
+# Native static libs (platform-specific binaries)
+/static-lib/
+src-tauri/static-lib/
+# Cargo home embedded in project
+/.cargo/
+
+# ===== Temp / Build Artifacts =====
+_tmp_*
+cargo-build*.log
+rustup-init.exe
+
+# ===== Secrets / Local Config =====
+.env
+.env.*
+!.env.example
+# Local runtime config (contains server/API settings)
+conf.yml
+
+# ===== Scripts / Deploy =====
+/deploy.sh

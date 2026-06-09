@@ -37,14 +37,17 @@ pub enum TaskStatus {
         progress: f64,
         fps: u64,
         estimate: f64,
+        log: String,
     },
     Done {
         duration: f64,
         output: String,
+        log: String,
     },
     Canceled,
     Failed {
         error: String,
+        log: String,
     },
 }
 
@@ -56,10 +59,15 @@ pub struct Task {
 
     params: RenderParams,
     status: Mutex<TaskStatus>,
+    stderr_buf: Arc<Mutex<String>>,
     request_cancel: AtomicBool,
 }
 
 impl Task {
+    async fn log_snapshot(&self) -> String {
+        let guard = self.stderr_buf.lock().await;
+        (*guard).clone()
+    }
     async fn new(id: u32, params: RenderParams) -> Result<Self> {
         let mut fs = fs::fs_from_file(&params.path)?;
         let info = fs::load_info(fs.deref_mut()).await?;
@@ -84,6 +92,7 @@ impl Task {
 
             params,
             status: Mutex::new(TaskStatus::Pending),
+            stderr_buf: Arc::new(Mutex::new(String::new())),
             request_cancel: AtomicBool::default(),
         })
     }
@@ -102,6 +111,30 @@ impl Task {
             .spawn()?;
         let mut stdin = child.stdin.take().unwrap();
         let stdout = child.stdout.take().unwrap();
+        let stderr = child.stderr.take().unwrap();
+
+        // Spawn stderr reader to capture real-time logs
+        let stderr_buf = self.stderr_buf.clone();
+        let stderr_task = tokio::spawn(async move {
+            let mut reader = BufReader::new(stderr);
+            let mut line_buf = String::new();
+            loop {
+                line_buf.clear();
+                match reader.read_line(&mut line_buf).await {
+                    Ok(0) => break, // EOF
+                    Ok(_) => {
+                        let mut buf = stderr_buf.lock().await;
+                        buf.push_str(&line_buf);
+                        // Keep last ~64KB of log
+                        if buf.len() > 65536 {
+                            let truncate_at = buf.len() - 32768;
+                            *buf = buf[truncate_at..].to_owned();
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
 
         stdin
             .write_all(format!("{}\n", serde_json::to_string(&self.params)?).as_bytes())
@@ -131,6 +164,7 @@ impl Task {
                         progress: 0.,
                         fps: 0,
                         estimate: 0.,
+                        log: self.log_snapshot().await,
                     };
                     total = total_frame;
                 }
@@ -152,6 +186,7 @@ impl Task {
                         progress: frame_count as f64 / total as f64,
                         fps: last_fps as u64,
                         estimate,
+                        log: self.log_snapshot().await,
                     };
                 }
                 IPCEvent::Done(duration) => {
@@ -163,6 +198,7 @@ impl Task {
                     *self.status.lock().await = TaskStatus::Done {
                         duration,
                         output: format!("[STDOUT]\n{stdout}\n\n[STDERR]\n{stderr}"),
+                        log: self.log_snapshot().await,
                     };
                     return Ok(());
                 }
@@ -182,6 +218,7 @@ impl Task {
                     output.status.code(),
                     String::from_utf8(output.stderr)?
                 ),
+                log: self.log_snapshot().await,
             };
             return Ok(());
         }
@@ -234,6 +271,7 @@ impl TaskQueue {
                     error!("Failed to render: {err:?}");
                     *task.status.lock().await = TaskStatus::Failed {
                         error: format!("{err:?}"),
+                        log: String::new(),
                     };
                 }
             }
