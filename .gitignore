@@ -65,7 +65,7 @@ rustup-init.exe
 .env.*
 !.env.example
 # Local runtime config (contains server/API settings)
-conf.yml
+
 
 # ===== Scripts / Deploy =====
 /deploy.sh
